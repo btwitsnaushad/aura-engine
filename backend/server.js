@@ -1,7 +1,9 @@
-const express = require("express");
-const cors = require("cors");
-const mongoose = require("mongoose");
-require("dotenv").config();
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+require('dotenv').config();
+
+const inventoryRoutes = require('./routes/inventoryRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -9,32 +11,18 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-app.get("/", (req, res) => {
-  res.json({
-    message: "Aura Engine API is running",
-    database: mongoose.connection.readyState === 1
-      ? "Connected"
-      : "Disconnected",
-  });
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => console.log('MongoDB connected successfully'))
+  .catch(err => console.error('DB connection failed:', err));
+
+// routes
+app.use('/api/inventory', inventoryRoutes);
+
+// health check
+app.get('/', (req, res) => {
+  res.json({ status: "Aura Engine API is active" });
 });
 
-async function startServer() {
-  try {
-    if (!process.env.MONGODB_URI) {
-      throw new Error("MONGODB_URI is missing from the .env file");
-    }
-
-    await mongoose.connect(process.env.MONGODB_URI);
-
-    console.log("MongoDB connected successfully");
-
-    app.listen(PORT, () => {
-      console.log(`Aura Engine server running on port ${PORT}`);
-    });
-  } catch (error) {
-    console.error("Startup failed:", error.message);
-    process.exit(1);
-  }
-}
-
-startServer();
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});

@@ -4,6 +4,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 const inventoryRoutes = require('./routes/inventoryRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -17,6 +18,7 @@ mongoose.connect(process.env.MONGODB_URI)
 
 // routes
 app.use('/api/inventory', inventoryRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // health check
 app.get('/', (req, res) => {

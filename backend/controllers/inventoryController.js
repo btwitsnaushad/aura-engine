@@ -43,4 +43,21 @@ const getInventory = async (req, res) => {
   }
 };
 
-module.exports = { getInventory };
+// add new product with validation
+const addProduct = async (req, res) => {
+  try {
+    const newProduct = new Product(req.body);
+    await newProduct.save();
+    res.status(201).json({ message: "Product created successfully", product: newProduct });
+  } catch (error) {
+    // handle unique SKU error from MongoDB
+    if (error.code === 11000) {
+      return res.status(400).json({ message: "SKU already exists" });
+    }
+    console.error('Error adding product:', error);
+    res.status(500).json({ message: 'Server Error saving product', error: error.message });
+  }
+};
+
+// Exporting both functions so the router can use them
+module.exports = { getInventory, addProduct };

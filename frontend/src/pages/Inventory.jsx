@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getInventory } from '../services/api';
+import { Search, Eye, RefreshCw, Download } from 'lucide-react';
 
 const Inventory = () => {
   const [products, setProducts] = useState([]);
@@ -7,23 +8,22 @@ const Inventory = () => {
   
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
   
-  // Search, Filters and Sorting states
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [category, setCategory] = useState('');
   const [sort, setSort] = useState('-lastUpdated');
 
-  // Client Requirement: 500ms Debounce to prevent API spam on every keystroke
+  // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchInput);
-      setPage(1); // reset to first page when search changes
+      setPage(1);
     }, 500);
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // Fetch data whenever page, search, category, or sort changes
   useEffect(() => {
     const loadInventory = async () => {
       setLoading(true);
@@ -31,6 +31,7 @@ const Inventory = () => {
         const { data } = await getInventory(page, 15, debouncedSearch, category, sort);
         setProducts(data.data);
         setTotalPages(data.totalPages);
+        setTotalRecords(data.totalRecords);
       } catch (error) {
         console.error("Failed to fetch inventory:", error);
       } finally {
@@ -40,12 +41,10 @@ const Inventory = () => {
     loadInventory();
   }, [page, debouncedSearch, category, sort]);
 
-  // Client Requirement: Export currently filtered table data to CSV blob
   const exportToCSV = () => {
     if (products.length === 0) return;
-    const headers = 'SKU,Product Name,Category,Price,Stock\n';
-    const csvRows = products.map(p => `${p.sku},"${p.productName}",${p.category},${p.price},${p.stockQuantity}\n`);
-    
+    const headers = 'SKU,Product Name,Category,Price,Cost,Stock\n';
+    const csvRows = products.map(p => `${p.sku},"${p.productName}",${p.category},${p.price},${p.cost},${p.stockQuantity}\n`);
     const blob = new Blob([headers + csvRows.join('')], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -55,69 +54,123 @@ const Inventory = () => {
     window.URL.revokeObjectURL(url);
   };
 
+  const getCategoryColor = (cat) => {
+    const colors = {
+      'Apparel': '#3b82f6', 'Home': '#10b981', 'Office': '#f59e0b',
+      'Sports': '#8b5cf6', 'Toys': '#ec4899', 'Electronics': '#06b6d4'
+    };
+    return colors[cat] || '#64748b';
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return `${date.getDate()} ${date.toLocaleString('default', { month: 'short' })} ${date.getFullYear()}, ${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+  };
+
   return (
-    <div style={{ padding: '20px', color: '#e2e8f0', maxWidth: '1200px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '15px' }}>
-        <h2>Inventory Management</h2>
-        
-        {/* Controls Toolbar */}
-        <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-          <input 
-            type="text" 
-            placeholder="Search products..." 
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            style={{ padding: '8px 12px', borderRadius: '4px', border: '1px solid #475569', background: '#1e293b', color: 'white', outline: 'none' }}
-          />
-          
-          <select value={category} onChange={(e) => { setCategory(e.target.value); setPage(1); }} style={{ padding: '8px', borderRadius: '4px', background: '#1e293b', color: 'white', border: '1px solid #475569' }}>
-            <option value="">All Categories</option>
-            <option value="Electronics">Electronics</option>
-            <option value="Apparel">Apparel</option>
-            <option value="Home">Home</option>
-            <option value="Office">Office</option>
-            <option value="Sports">Sports</option>
-            <option value="Toys">Toys</option>
-          </select>
+    <div style={{ color: '#e2e8f0' }}>
+      <div style={{ marginBottom: '25px' }}>
+        <h2 style={{ margin: '0 0 8px 0', fontSize: '24px', fontWeight: 'bold', color: 'white' }}>Inventory Management</h2>
+        <p style={{ margin: 0, color: '#9ca3af', fontSize: '14px' }}>View, search and manage your product inventory</p>
+      </div>
 
-          <select value={sort} onChange={(e) => setSort(e.target.value)} style={{ padding: '8px', borderRadius: '4px', background: '#1e293b', color: 'white', border: '1px solid #475569' }}>
-            <option value="-lastUpdated">Newest First</option>
-            <option value="-price">Price: High to Low</option>
-            <option value="price">Price: Low to High</option>
-            <option value="stockQuantity">Stock: Low to High</option>
-          </select>
-
-          <button onClick={exportToCSV} style={{ padding: '8px 16px', borderRadius: '4px', border: 'none', background: '#10b981', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}>
-            Export CSV
+      {/* Toolbar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '20px', flexWrap: 'wrap', gap: '15px' }}>
+        <div style={{ display: 'flex', gap: '10px', flex: 1, minWidth: '300px' }}>
+          <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
+            <Search size={18} color="#64748b" style={{ position: 'absolute', left: '12px', top: '10px' }} />
+            <input 
+              type="text" 
+              placeholder="Search products by name or SKU..." 
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              style={{ width: '100%', padding: '10px 10px 10px 40px', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: 'white', outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+          <button style={{ padding: '0 20px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '500' }}>
+            <RefreshCw size={16} /> Search
           </button>
+        </div>
+        
+        <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: '12px', color: '#9ca3af', marginBottom: '4px' }}>Category</div>
+            <select value={category} onChange={(e) => { setCategory(e.target.value); setPage(1); }} style={{ padding: '10px', borderRadius: '6px', background: '#1e293b', color: 'white', border: '1px solid #334155', outline: 'none', minWidth: '150px' }}>
+              <option value="">All Categories</option>
+              <option value="Electronics">Electronics</option>
+              <option value="Apparel">Apparel</option>
+              <option value="Home">Home</option>
+              <option value="Office">Office</option>
+              <option value="Sports">Sports</option>
+              <option value="Toys">Toys</option>
+            </select>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '12px', color: '#9ca3af', marginBottom: '4px' }}>Sort By</div>
+            <select value={sort} onChange={(e) => setSort(e.target.value)} style={{ padding: '10px', borderRadius: '6px', background: '#1e293b', color: 'white', border: '1px solid #334155', outline: 'none', minWidth: '150px' }}>
+              <option value="-lastUpdated">Default</option>
+              <option value="-price">Price: High to Low</option>
+              <option value="price">Price: Low to High</option>
+              <option value="stockQuantity">Stock: Low to High</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'flex-end', height: '100%', gap: '10px' }}>
+            <button onClick={() => { setSearchInput(''); setCategory(''); setSort('-lastUpdated'); }} style={{ padding: '10px 16px', borderRadius: '6px', border: '1px solid #334155', background: 'transparent', color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <RefreshCw size={14} /> Reset
+            </button>
+            <button onClick={exportToCSV} style={{ padding: '10px 16px', borderRadius: '6px', border: 'none', background: '#10b981', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '500' }}>
+              <Download size={16} /> Export
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Data Table */}
-      <div style={{ background: '#1e293b', borderRadius: '8px', overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+      {/* Table */}
+      <div style={{ background: '#1e293b', borderRadius: '8px', border: '1px solid #334155', overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
           <thead style={{ background: '#0f172a' }}>
             <tr>
-              <th style={{ padding: '15px', borderBottom: '1px solid #334155' }}>SKU</th>
-              <th style={{ padding: '15px', borderBottom: '1px solid #334155' }}>Product Name</th>
-              <th style={{ padding: '15px', borderBottom: '1px solid #334155' }}>Category</th>
-              <th style={{ padding: '15px', borderBottom: '1px solid #334155' }}>Price</th>
-              <th style={{ padding: '15px', borderBottom: '1px solid #334155' }}>Stock</th>
+              <th style={{ padding: '16px', borderBottom: '1px solid #334155', color: '#9ca3af', fontWeight: '500' }}>SKU</th>
+              <th style={{ padding: '16px', borderBottom: '1px solid #334155', color: '#9ca3af', fontWeight: '500' }}>Product Name</th>
+              <th style={{ padding: '16px', borderBottom: '1px solid #334155', color: '#9ca3af', fontWeight: '500' }}>Category</th>
+              <th style={{ padding: '16px', borderBottom: '1px solid #334155', color: '#9ca3af', fontWeight: '500' }}>Price</th>
+              <th style={{ padding: '16px', borderBottom: '1px solid #334155', color: '#9ca3af', fontWeight: '500' }}>Cost</th>
+              <th style={{ padding: '16px', borderBottom: '1px solid #334155', color: '#9ca3af', fontWeight: '500' }}>Stock</th>
+              <th style={{ padding: '16px', borderBottom: '1px solid #334155', color: '#9ca3af', fontWeight: '500' }}>Reorder Level</th>
+              <th style={{ padding: '16px', borderBottom: '1px solid #334155', color: '#9ca3af', fontWeight: '500' }}>Last Updated</th>
+              <th style={{ padding: '16px', borderBottom: '1px solid #334155', color: '#9ca3af', fontWeight: '500' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan="5" style={{ padding: '20px', textAlign: 'center' }}>Loading products...</td></tr>
+              <tr><td colSpan="9" style={{ padding: '20px', textAlign: 'center' }}>Loading products...</td></tr>
             ) : products.length === 0 ? (
-              <tr><td colSpan="5" style={{ padding: '20px', textAlign: 'center' }}>No products found.</td></tr>
+              <tr><td colSpan="9" style={{ padding: '20px', textAlign: 'center' }}>No products found.</td></tr>
             ) : (
               products.map((item) => (
-                <tr key={item._id} style={{ borderBottom: '1px solid #334155' }}>
-                  <td style={{ padding: '12px 15px', color: '#94a3b8' }}>{item.sku}</td>
-                  <td style={{ padding: '12px 15px' }}>{item.productName}</td>
-                  <td style={{ padding: '12px 15px' }}><span style={{ background: '#334155', padding: '4px 8px', borderRadius: '12px', fontSize: '12px' }}>{item.category}</span></td>
-                  <td style={{ padding: '12px 15px' }}>${item.price.toFixed(2)}</td>
-                  <td style={{ padding: '12px 15px', color: item.stockQuantity < 50 ? '#ef4444' : '#10b981' }}>{item.stockQuantity}</td>
+                <tr key={item._id} style={{ borderBottom: '1px solid #334155', transition: 'background 0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = '#334155'} onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}>
+                  <td style={{ padding: '16px', color: '#cbd5e1' }}>{item.sku}</td>
+                  <td style={{ padding: '16px', color: 'white' }}>{item.productName}</td>
+                  <td style={{ padding: '16px' }}>
+                    <span style={{ background: `${getCategoryColor(item.category)}20`, color: getCategoryColor(item.category), border: `1px solid ${getCategoryColor(item.category)}40`, padding: '4px 10px', borderRadius: '4px', fontSize: '12px', fontWeight: '500' }}>
+                      {item.category}
+                    </span>
+                  </td>
+                  <td style={{ padding: '16px' }}>${item.price.toFixed(2)}</td>
+                  <td style={{ padding: '16px', color: '#9ca3af' }}>${item.cost ? item.cost.toFixed(2) : '0.00'}</td>
+                  <td style={{ padding: '16px', color: item.stockQuantity < (item.reorderLevel || 50) ? '#ef4444' : '#10b981', fontWeight: '500' }}>
+                    {item.stockQuantity}
+                  </td>
+                  <td style={{ padding: '16px', color: '#9ca3af' }}>{item.reorderLevel || 20}</td>
+                  <td style={{ padding: '16px', color: '#9ca3af' }}>{formatDate(item.lastUpdated || new Date())}</td>
+                  <td style={{ padding: '16px' }}>
+                    <button style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer', padding: '4px' }}>
+                      <Eye size={18} />
+                    </button>
+                  </td>
                 </tr>
               ))
             )}
@@ -128,9 +181,14 @@ const Inventory = () => {
       {/* Pagination Controls */}
       {!loading && totalPages > 0 && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px' }}>
-          <button onClick={() => setPage(prev => Math.max(prev - 1, 1))} disabled={page === 1} style={{ padding: '8px 16px', borderRadius: '4px', border: 'none', background: page === 1 ? '#334155' : '#3b82f6', color: 'white', cursor: page === 1 ? 'not-allowed' : 'pointer' }}>Previous</button>
-          <span>Page {page} of {totalPages}</span>
-          <button onClick={() => setPage(prev => Math.min(prev + 1, totalPages))} disabled={page === totalPages} style={{ padding: '8px 16px', borderRadius: '4px', border: 'none', background: page === totalPages ? '#334155' : '#3b82f6', color: 'white', cursor: page === totalPages ? 'not-allowed' : 'pointer' }}>Next</button>
+          <div style={{ color: '#9ca3af', fontSize: '14px' }}>
+            Showing {(page - 1) * 15 + 1} to {Math.min(page * 15, totalRecords)} of {totalRecords.toLocaleString()} products
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={() => setPage(prev => Math.max(prev - 1, 1))} disabled={page === 1} style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #334155', background: 'transparent', color: page === 1 ? '#475569' : 'white', cursor: page === 1 ? 'not-allowed' : 'pointer' }}>Previous</button>
+            <button style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: 'white', fontWeight: '500' }}>{page}</button>
+            <button onClick={() => setPage(prev => Math.min(prev + 1, totalPages))} disabled={page === totalPages} style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #334155', background: 'transparent', color: page === totalPages ? '#475569' : 'white', cursor: page === totalPages ? 'not-allowed' : 'pointer' }}>Next</button>
+          </div>
         </div>
       )}
     </div>

@@ -1,14 +1,56 @@
+
 import axios from 'axios';
 
 const api = axios.create({
   baseURL: 'http://localhost:5000/api',
+  headers: {
+    'Content-Type': 'application/json',
+  },
 });
 
-// Added category and sort parameters for advanced filtering
-export const getInventory = (page = 1, limit = 15, search = '', category = '', sort = '-lastUpdated') => {
-  return api.get(`/inventory?page=${page}&limit=${limit}&search=${search}&category=${category}&sort=${sort}`);
+// Fetch inventory with pagination, search, filters and sorting.
+export const getInventory = (
+  page = 1,
+  limit = 50,
+  search = '',
+  category = '',
+  sort = '-lastUpdated',
+  filters = {}
+) => {
+  const params = {
+    page,
+    limit,
+    sort,
+  };
+
+  if (search.trim()) {
+    params.search = search.trim();
+  }
+
+  if (category) {
+    params.category = category;
+  }
+
+  if (filters.minStock != null && filters.minStock !== '') {
+    params.minStock = filters.minStock;
+  }
+
+  if (filters.maxStock != null && filters.maxStock !== '') {
+    params.maxStock = filters.maxStock;
+  }
+
+  if (filters.minPrice != null && filters.minPrice !== '') {
+    params.minPrice = filters.minPrice;
+  }
+
+  if (filters.maxPrice != null && filters.maxPrice !== '') {
+    params.maxPrice = filters.maxPrice;
+  }
+
+  return api.get('/inventory', { params });
 };
 
+// Fetch dashboard analytics.
 export const getAnalytics = () => {
   return api.get('/analytics');
 };

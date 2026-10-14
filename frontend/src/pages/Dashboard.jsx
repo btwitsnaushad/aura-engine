@@ -1,5 +1,5 @@
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getAnalytics } from '../services/api';
 import {
   BarChart,
@@ -12,25 +12,21 @@ import {
   PieChart,
   Pie,
   Cell,
-  LineChart,
-  Line,
 } from 'recharts';
 import {
-  Hexagon,
+  Package,
   Database,
   AlertTriangle,
-  Tags,
   Calendar,
   RefreshCw,
-  TrendingUp,
 } from 'lucide-react';
 
 const COLORS = [
-  '#ec4899',
+  '#3b82f6',
   '#10b981',
   '#f59e0b',
   '#8b5cf6',
-  '#ef4444',
+  '#ec4899',
   '#06b6d4',
 ];
 
@@ -40,65 +36,147 @@ const Dashboard = ({ isDarkMode = true }) => {
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  const cardBg = isDarkMode ? '#1e293b' : '#ffffff';
-  const borderColor = isDarkMode ? '#334155' : '#e2e8f0';
-  const textColor = isDarkMode ? '#f8fafc' : '#0f172a';
-  const textMuted = isDarkMode ? '#94a3b8' : '#64748b';
-  const chartGrid = isDarkMode ? '#334155' : '#e2e8f0';
-  const tooltipBg = isDarkMode ? '#0f172a' : '#ffffff';
+  const colors = {
+    background: isDarkMode ? '#0f172a' : '#f8fafc',
+    card: isDarkMode ? '#1e293b' : '#ffffff',
+    border: isDarkMode ? '#334155' : '#e2e8f0',
+    text: isDarkMode ? '#f8fafc' : '#0f172a',
+    muted: isDarkMode ? '#94a3b8' : '#64748b',
+    grid: isDarkMode ? '#334155' : '#e2e8f0',
+    tooltip: isDarkMode ? '#0f172a' : '#ffffff',
+  };
 
-  // Fetch the latest analytics from the backend.
-  const fetchAnalytics = async () => {
-    setLoading(true);
-    setError('');
-
+  // Initial loading is already true, so this function only updates state
+  // after the asynchronous request settles. This avoids synchronous state
+  // updates from the mounting effect.
+  const fetchAnalytics = useCallback(async () => {
     try {
-      const { data } = await getAnalytics();
-
-      setAnalytics(data);
+      const response = await getAnalytics();
+      setAnalytics(response.data);
       setLastUpdated(new Date());
+      setError('');
     } catch (err) {
       console.error('Failed to load dashboard analytics:', err);
-      setError('Unable to load analytics. Check the backend connection and try again.');
+      setError(
+        'Unable to load analytics. Please check the backend connection.'
+      );
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const handleRefresh = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    await fetchAnalytics();
+  }, [fetchAnalytics]);
+
+ useEffect(() => {
+  let isMounted = true;
+
+  const loadDashboard = async () => {
+    try {
+      const response = await getAnalytics();
+
+      if (isMounted) {
+        setAnalytics(response.data);
+        setLastUpdated(new Date());
+        setError('');
+      }
+    } catch (err) {
+      console.error('Failed to load dashboard analytics:', err);
+
+      if (isMounted) {
+        setError(
+          'Unable to load analytics. Please check the backend connection.'
+        );
+      }
+    } finally {
+      if (isMounted) {
+        setLoading(false);
+      }
+    }
   };
 
-  useEffect(() => {
-    fetchAnalytics();
-  }, []);
+  loadDashboard();
+
+  return () => {
+    isMounted = false;
+  };
+}, []);
+
+  const formatNumber = (value) =>
+    new Intl.NumberFormat('en-US').format(Number(value) || 0);
 
   const formatCurrency = (value) =>
     new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       maximumFractionDigits: 2,
-    }).format(value || 0);
+    }).format(Number(value) || 0);
 
-  const formatNumber = (value) =>
-    new Intl.NumberFormat('en-US').format(value || 0);
+  // Use a compact value in the KPI card to prevent text wrapping.
+  const formatCompactCurrency = (value) =>
+    new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      notation: 'compact',
+      maximumFractionDigits: 2,
+    }).format(Number(value) || 0);
+
+  const cardStyle = {
+    background: colors.card,
+    border: `1px solid ${colors.border}`,
+    borderRadius: '14px',
+    padding: '22px',
+    minWidth: 0,
+    boxSizing: 'border-box',
+  };
+
+  const tooltipStyle = {
+    backgroundColor: colors.tooltip,
+    border: `1px solid ${colors.border}`,
+    borderRadius: '10px',
+    color: colors.text,
+    padding: '10px 14px',
+  };
 
   if (loading && !analytics) {
     return (
-      <div style={{ color: textColor, padding: '24px' }}>
-        Loading analytics...
+      <div
+        role="status"
+        style={{
+          color: colors.text,
+          padding: '40px 20px',
+          textAlign: 'center',
+        }}
+      >
+        Loading dashboard analytics...
       </div>
     );
   }
 
-  if (error && !analytics) {
+  if (!analytics && error) {
     return (
-      <div style={{ color: textColor, padding: '24px' }}>
-        <p style={{ color: '#ef4444' }}>{error}</p>
+      <div
+        style={{
+          ...cardStyle,
+          color: colors.text,
+          textAlign: 'center',
+          padding: '40px 20px',
+        }}
+      >
+        <AlertTriangle size={32} color="#ef4444" />
+        <p>{error}</p>
         <button
-          onClick={fetchAnalytics}
+          type="button"
+          onClick={handleRefresh}
           style={{
-            padding: '10px 16px',
-            border: 'none',
-            borderRadius: '8px',
             background: '#3b82f6',
             color: '#ffffff',
+            border: 'none',
+            borderRadius: '8px',
+            padding: '11px 18px',
             cursor: 'pointer',
           }}
         >
@@ -111,78 +189,46 @@ const Dashboard = ({ isDarkMode = true }) => {
   if (!analytics) return null;
 
   const kpis = analytics.kpis || {};
+
   const pieData = (analytics.portfolioDistribution || []).map((item) => ({
     name: item._id || 'Uncategorized',
-    value: item.categoryValue || 0,
+    value: Number(item.categoryValue) || 0,
   }));
 
-  const lowStockProducts = analytics.riskAssessment || [];
-
- 
-  // Keep the chart values consistent with the inventory records.
-  const distributionData = lowStockProducts.map((product) => ({
-    name: product.productName || 'Unnamed Product',
-    count: Number(product.stockQuantity) || 0,
-  }));
-
-
-  // Historical values are not available from the current analytics API.
-  // Show a current-value snapshot instead of inventing historical figures.
-  const trendData = [
-    {
-      name: 'Current',
-      value: kpis.totalInventoryValue || 0,
-    },
-  ];
-
-  const cardStyle = {
-    background: cardBg,
-    padding: '20px',
-    borderRadius: '12px',
-    border: `1px solid ${borderColor}`,
-    minWidth: 0,
-    boxSizing: 'border-box',
-  };
-
-  const tooltipStyle = {
-    background: tooltipBg,
-    border: `1px solid ${borderColor}`,
-    borderRadius: '8px',
-    color: textColor,
-  };
+  // The backend returns products ordered by their lowest positive stock.
+  const lowStockProducts = (analytics.riskAssessment || [])
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(a.stockQuantity) - Number(b.stockQuantity)
+    )
+    .slice(0, 10);
 
   const kpiCards = [
     {
       title: 'Total SKUs',
       value: formatNumber(kpis.totalSKUs),
       note: 'Products in inventory',
-      icon: Hexagon,
-      color: '#3b82f6',
+      icon: Package,
+      color: '#60a5fa',
       iconBg: isDarkMode ? '#1e3a8a' : '#dbeafe',
     },
     {
       title: 'Total Inventory Value',
-      value: formatCurrency(kpis.totalInventoryValue),
+      value: formatCompactCurrency(kpis.totalInventoryValue),
       note: 'Current stock value',
       icon: Database,
-      color: '#10b981',
+      color: '#34d399',
       iconBg: isDarkMode ? '#064e3b' : '#d1fae5',
+      fullValue: formatCurrency(kpis.totalInventoryValue),
     },
     {
       title: 'Out of Stock',
       value: formatNumber(kpis.outOfStock),
       note: 'Products with zero stock',
       icon: AlertTriangle,
-      color: '#ef4444',
+      color: '#f87171',
       iconBg: isDarkMode ? '#7f1d1d' : '#fee2e2',
-    },
-    {
-      title: 'Categories',
-      value: formatNumber(pieData.length),
-      note: 'Product categories',
-      icon: Tags,
-      color: '#8b5cf6',
-      iconBg: isDarkMode ? '#4c1d95' : '#ede9fe',
     },
   ];
 
@@ -190,92 +236,131 @@ const Dashboard = ({ isDarkMode = true }) => {
     <div
       style={{
         width: '100%',
-        maxWidth: '100%',
+        minWidth: 0,
         boxSizing: 'border-box',
-        color: textColor,
+        color: colors.text,
       }}
     >
+      {/* Dashboard heading and refresh controls */}
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
-          gap: '16px',
+          gap: '18px',
           marginBottom: '28px',
         }}
       >
         <div>
-          <h2
+          <h1
             style={{
+              fontSize: 'clamp(23px, 2.2vw, 30px)',
+              lineHeight: 1.3,
+              fontWeight: 750,
               margin: '0 0 8px',
-              fontSize: '28px',
-              fontWeight: 700,
-              color: textColor,
+              letterSpacing: '-0.6px',
             }}
           >
             Business Analytics Overview
-          </h2>
-          <p style={{ margin: 0, color: textMuted, fontSize: '14px' }}>
+          </h1>
+          <p
+            style={{
+              margin: 0,
+              color: colors.muted,
+              fontSize: '14px',
+            }}
+          >
             Insights from your inventory data
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '14px',
+          }}
+        >
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
-              color: textMuted,
+              gap: '9px',
+              color: colors.muted,
               fontSize: '12px',
             }}
           >
             <Calendar size={17} />
-            <span>
-              Last updated
-              <br />
-              <strong style={{ color: textColor }}>
+            <div>
+              <div>Last updated</div>
+              <strong
+                style={{
+                  display: 'block',
+                  color: colors.text,
+                  marginTop: '3px',
+                }}
+              >
                 {lastUpdated
                   ? lastUpdated.toLocaleTimeString()
                   : 'Not available'}
               </strong>
-            </span>
+            </div>
           </div>
 
           <button
-            onClick={fetchAnalytics}
+            type="button"
+            onClick={handleRefresh}
             disabled={loading}
             style={{
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '8px',
-              padding: '10px 15px',
-              border: 'none',
-              borderRadius: '8px',
               background: '#3b82f6',
               color: '#ffffff',
+              border: 'none',
+              borderRadius: '9px',
+              padding: '11px 17px',
+              fontSize: '13px',
+              fontWeight: 650,
               cursor: loading ? 'wait' : 'pointer',
               opacity: loading ? 0.7 : 1,
-              fontWeight: 600,
             }}
           >
-            <RefreshCw size={16} />
+            <RefreshCw
+              size={16}
+              style={{
+                animation: loading ? 'dashboard-spin 1s linear infinite' : 'none',
+              }}
+            />
             {loading ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
       </div>
 
       {error && (
-        <p style={{ color: '#ef4444', marginBottom: '16px' }}>
+        <div
+          role="alert"
+          style={{
+            padding: '12px 16px',
+            marginBottom: '20px',
+            border: '1px solid #ef4444',
+            borderRadius: '9px',
+            color: '#f87171',
+            fontSize: '13px',
+          }}
+        >
           {error} Showing the last successfully loaded data.
-        </p>
+        </div>
       )}
 
+      {/* Inventory KPI cards */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 230px), 1fr))',
           gap: '18px',
           marginBottom: '24px',
         }}
@@ -284,265 +369,269 @@ const Dashboard = ({ isDarkMode = true }) => {
           const Icon = item.icon;
 
           return (
-            <div key={item.title} style={cardStyle}>
+            <section
+              key={item.title}
+              style={{
+                ...cardStyle,
+                minHeight: '145px',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '16px',
+              }}
+              title={item.fullValue || undefined}
+            >
               <div
                 style={{
+                  width: '48px',
+                  height: '48px',
+                  flexShrink: 0,
                   display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: '14px',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: item.iconBg,
+                  borderRadius: '11px',
                 }}
               >
-                <div
+                <Icon size={23} color={item.color} />
+              </div>
+
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <p
                   style={{
-                    background: item.iconBg,
-                    padding: '12px',
-                    borderRadius: '10px',
-                    flexShrink: 0,
+                    margin: '3px 0 10px',
+                    color: colors.muted,
+                    fontSize: '13px',
                   }}
                 >
-                  <Icon size={23} color={item.color} />
-                </div>
+                  {item.title}
+                </p>
 
-                <div style={{ minWidth: 0 }}>
-                  <p
-                    style={{
-                      margin: '0 0 8px',
-                      fontSize: '13px',
-                      color: textMuted,
-                    }}
-                  >
-                    {item.title}
-                  </p>
-                  <h3
-                    style={{
-                      margin: '0 0 8px',
-                      fontSize: 'clamp(18px, 2vw, 23px)',
-                      overflowWrap: 'anywhere',
-                    }}
-                  >
-                    {item.value}
-                  </h3>
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: '12px',
-                      color: textMuted,
-                    }}
-                  >
-                    {item.note}
-                  </p>
-                </div>
+                <h2
+                  style={{
+                    margin: '0 0 9px',
+                    fontSize: 'clamp(21px, 2vw, 26px)',
+                    lineHeight: 1.25,
+                    fontWeight: 750,
+                    letterSpacing: '-0.5px',
+                    overflowWrap: 'normal',
+                  }}
+                >
+                  {item.value}
+                </h2>
+
+                <p
+                  style={{
+                    margin: 0,
+                    color: colors.muted,
+                    fontSize: '12px',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {item.note}
+                </p>
               </div>
-            </div>
+            </section>
           );
         })}
       </div>
 
+      {/* Category distribution and low-stock charts */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: '18px',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))',
+          gap: '20px',
           marginBottom: '24px',
+          alignItems: 'stretch',
         }}
       >
-        <section style={cardStyle}>
-          <h3 style={{ margin: '0 0 18px', fontSize: '16px' }}>
+        <section style={{ ...cardStyle, minHeight: '390px' }}>
+          <h2
+            style={{
+              margin: '0 0 8px',
+              fontSize: '16px',
+              fontWeight: 700,
+            }}
+          >
             Inventory Value by Category
-          </h3>
+          </h2>
+          <p
+            style={{
+              margin: '0 0 14px',
+              color: colors.muted,
+              fontSize: '12px',
+            }}
+          >
+            Distribution of current inventory value
+          </p>
 
-          {pieData.length ? (
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={65}
-                  outerRadius={95}
-                  paddingAngle={2}
-                  dataKey="value"
-                  nameKey="name"
-                >
-                  {pieData.map((entry, index) => (
-                    <Cell
-                      key={entry.name}
-                      fill={COLORS[index % COLORS.length]}
+          {pieData.length > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={65}
+                    outerRadius={96}
+                    paddingAngle={3}
+                    stroke={colors.card}
+                    strokeWidth={2}
+                  >
+                    {pieData.map((entry, index) => (
+                      <Cell
+                        key={entry.name}
+                        fill={COLORS[index % COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+
+                  <Tooltip
+                    formatter={(value) => formatCurrency(value)}
+                    contentStyle={tooltipStyle}
+                    itemStyle={{ color: colors.text }}
+                    labelStyle={{ color: colors.text }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  justifyContent: 'center',
+                  gap: '10px 16px',
+                  marginTop: '4px',
+                }}
+              >
+                {pieData.map((item, index) => (
+                  <div
+                    key={item.name}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '7px',
+                      fontSize: '12px',
+                      color: colors.muted,
+                      maxWidth: '100%',
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: '9px',
+                        height: '9px',
+                        flexShrink: 0,
+                        borderRadius: '3px',
+                        background: COLORS[index % COLORS.length],
+                      }}
                     />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(value) => formatCurrency(value)}
-                  contentStyle={tooltipStyle}
-                />
-              </PieChart>
-            </ResponsiveContainer>
+                    <span>{item.name}</span>
+                  </div>
+                ))}
+              </div>
+            </>
           ) : (
-            <p style={{ color: textMuted }}>No category data available.</p>
+            <p style={{ color: colors.muted, fontSize: '13px' }}>
+              No category data available.
+            </p>
           )}
         </section>
 
-        <section style={cardStyle}>
-          <h3 style={{ margin: '0 0 18px', fontSize: '16px' }}>
-            Current Inventory Value
-          </h3>
-
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={trendData}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke={chartGrid}
-                vertical={false}
-              />
-              <XAxis
-                dataKey="name"
-                stroke={textMuted}
-                tick={{ fontSize: 12 }}
-              />
-              <YAxis
-                stroke={textMuted}
-                tick={{ fontSize: 11 }}
-                tickFormatter={(value) =>
-                  `$${(value / 1000000).toFixed(0)}M`
-                }
-              />
-              <Tooltip
-                formatter={(value) => formatCurrency(value)}
-                contentStyle={tooltipStyle}
-              />
-              <Line
-                type="monotone"
-                dataKey="value"
-                name="Inventory Value"
-                stroke="#3b82f6"
-                strokeWidth={3}
-                dot={{ r: 5, fill: '#3b82f6' }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-
-          <p style={{ margin: 0, color: textMuted, fontSize: '12px' }}>
-            Historical trends require dated inventory snapshots.
-          </p>
-        </section>
-
-        <section style={cardStyle}>
-          <h3 style={{ margin: '0 0 18px', fontSize: '16px' }}>
+        <section style={{ ...cardStyle, minHeight: '390px' }}>
+          <h2
+            style={{
+              margin: '0 0 8px',
+              fontSize: '16px',
+              fontWeight: 700,
+            }}
+          >
             Lowest Stock Products
-          </h3>
+          </h2>
+          <p
+            style={{
+              margin: '0 0 14px',
+              color: colors.muted,
+              fontSize: '12px',
+            }}
+          >
+            Products with the lowest available stock
+          </p>
 
-          {distributionData.length ? (
-            <ResponsiveContainer width="100%" height={260}>
+          {lowStockProducts.length > 0 ? (
+            <ResponsiveContainer
+              width="100%"
+              height={300}
+            >
               <BarChart
-                data={distributionData}
+                data={lowStockProducts}
                 layout="vertical"
-                margin={{ top: 4, right: 12, bottom: 4, left: 12 }}
+                margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
               >
                 <CartesianGrid
+                  stroke={colors.grid}
                   strokeDasharray="3 3"
-                  stroke={chartGrid}
                   horizontal={false}
                 />
+
                 <XAxis
                   type="number"
-                  stroke={textMuted}
+                  allowDecimals={false}
+                  stroke={colors.muted}
                   tick={{ fontSize: 11 }}
+                  axisLine={{ stroke: colors.border }}
                 />
+
                 <YAxis
                   type="category"
-                  dataKey="name"
-                  stroke={textMuted}
-                  width={110}
+                  dataKey="productName"
+                  width={120}
+                  stroke={colors.muted}
                   tick={{ fontSize: 10 }}
+                  tickFormatter={(value) =>
+                    value && value.length > 19
+                      ? `${value.slice(0, 17)}...`
+                      : value
+                  }
+                  interval={0}
                 />
-                <Tooltip contentStyle={tooltipStyle} />
+
+                <Tooltip
+                  contentStyle={tooltipStyle}
+                  labelStyle={{ color: colors.text }}
+                  formatter={(value) => [
+                    formatNumber(value),
+                    'Stock Quantity',
+                  ]}
+                />
+
                 <Bar
-                  dataKey="count"
+                  dataKey="stockQuantity"
                   name="Stock Quantity"
                   fill="#3b82f6"
                   radius={[0, 5, 5, 0]}
+                  maxBarSize={20}
                 />
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <p style={{ color: textMuted }}>No stock risk data available.</p>
+            <p style={{ color: colors.muted, fontSize: '13px' }}>
+              No low-stock products available.
+            </p>
           )}
         </section>
       </div>
 
-      <section style={cardStyle}>
-        <h3 style={{ margin: '0 0 16px', fontSize: '16px' }}>
-          Low Stock Overview
-        </h3>
-
-        {lowStockProducts.length ? (
-          <div style={{ overflowX: 'auto' }}>
-            <table
-              style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                textAlign: 'left',
-              }}
-            >
-              <thead>
-                <tr style={{ borderBottom: `1px solid ${borderColor}` }}>
-                  {['Product', 'Category', 'Stock Quantity', 'Status'].map(
-                    (heading) => (
-                      <th
-                        key={heading}
-                        style={{
-                          padding: '12px',
-                          color: textMuted,
-                          fontSize: '12px',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {heading}
-                      </th>
-                    )
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {lowStockProducts.map((product) => (
-                  <tr
-                    key={product._id}
-                    style={{ borderBottom: `1px solid ${borderColor}` }}
-                  >
-                    <td style={{ padding: '12px' }}>
-                      {product.productName}
-                    </td>
-                    <td style={{ padding: '12px', color: textMuted }}>
-                      {product.category}
-                    </td>
-                    <td style={{ padding: '12px' }}>
-                      {product.stockQuantity}
-                    </td>
-                    <td style={{ padding: '12px' }}>
-                      <span
-                        style={{
-                          color: '#f59e0b',
-                          background: isDarkMode ? '#422006' : '#fef3c7',
-                          padding: '5px 9px',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        Low Stock
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p style={{ color: textMuted }}>
-            No low-stock products to display.
-          </p>
-        )}
-      </section>
+      <style>
+        {`
+          @keyframes dashboard-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+        `}
+      </style>
     </div>
   );
 };

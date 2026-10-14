@@ -1,63 +1,201 @@
+
 const Product = require('../models/Product');
+
+// Escape special characters before using search text in a regex.
+const escapeRegex = (value) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const getInventory = async (req, res) => {
   try {
-    // extract pagination params, default to page 1 and 50 items
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
-    const skip = (page - 1) * limit;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit, 10) || 50)
+    );
 
     const query = {};
 
-    if (req.query.search) {
-      // 'i' makes the regex case-insensitive
-      query.productName = { $regex: req.query.search, $options: 'i' };
+    // Search by product name or SKU.
+    if (typeof req.query.search === 'string' && req.query.search.trim()) {
+      const search = escapeRegex(req.query.search.trim());
+
+      query.$or = [
+        { productName: { $regex: search, $options: 'i' } },
+        { sku: { $regex: search, $options: 'i' } },
+      ];
     }
 
-    if (req.query.category) {
-      query.category = req.query.category;
+    // Filter by category.
+    if (
+      typeof req.query.category === 'string' &&
+      req.query.category.trim()
+    ) {
+      query.category = req.query.category.trim();
     }
 
-    // fetch data and count total docs in parallel to save execution time
+    // Filter by stock range.
+    const stockFilter = {};
+
+    if (req.query.minStock !== undefined) {
+      const minStock = Number(req.query.minStock);
+
+      if (!Number.isFinite(minStock) || minStock < 0) {
+        return res.status(400).json({
+          message: 'minStock must be a non-negative number.',
+        });
+      }
+
+      stockFilter.$gte = minStock;
+    }
+
+    if (req.query.maxStock !== undefined) {
+      const maxStock = Number(req.query.maxStock);
+
+      if (!Number.isFinite(maxStock) || maxStock < 0) {
+        return res.status(400).json({
+          message: 'maxStock must be a non-negative number.',
+        });
+      }
+
+      stockFilter.$lte = maxStock;
+    }
+
+    if (
+      stockFilter.$gte !== undefined &&
+      stockFilter.$lte !== undefined &&
+      stockFilter.$gte > stockFilter.$lte
+    ) {
+      return res.status(400).json({
+        message: 'minStock cannot exceed maxStock.',
+      });
+    }
+
+    if (Object.keys(stockFilter).length > 0) {
+      query.stock = stockFilter;
+    }
+
+    // Filter by selling price range.
+    const priceFilter = {};
+
+    if (req.query.minPrice !== undefined) {
+      const minPrice = Number(req.query.minPrice);
+
+      if (!Number.isFinite(minPrice) || minPrice < 0) {
+        return res.status(400).json({
+          message: 'minPrice must be a non-negative number.',
+        });
+      }
+
+      priceFilter.$gte = minPrice;
+    }
+
+    if (req.query.maxPrice !== undefined) {
+      const maxPrice = Number(req.query.maxPrice);
+
+      if (!Number.isFinite(maxPrice) || maxPrice < 0) {
+        return res.status(400).json({
+          message: 'maxPrice must be a non-negative number.',
+        });
+      }
+
+      priceFilter.$lte = maxPrice;
+    }
+
+    if (
+      priceFilter.$gte !== undefined &&
+      priceFilter.$lte !== undefined &&
+      priceFilter.$gte > priceFilter.$lte
+    ) {
+      return res.status(400).json({
+        message: 'minPrice cannot exceed maxPrice.',
+      });
+    }
+
+    if (Object.keys(priceFilter).length > 0) {
+      query.price = priceFilter;
+    }
+
+    // Allow only supported sort fields.
+    const allowedSortFields = new Set([
+      'productName',
+      'sku',
+      'category',
+      'price',
+      'cost',
+      'stock',
+      'reorderLevel',
+      'lastUpdated',
+    ]);
+
+    let sort = { lastUpdated: -1 };
+
+    if (typeof req.query.sort === 'string' && req.query.sort.trim()) {
+      const sortValue = req.query.sort.trim();
+      const descending = sortValue.startsWith('-');
+      const field = descending ? sortValue.slice(1) : sortValue;
+
+      if (!allowedSortFields.has(field)) {
+        return res.status(400).json({
+          message: 'Unsupported sort field.',
+        });
+      }
+
+      sort = { [field]: descending ? -1 : 1 };
+    }
+
+    const skip = (page - 1) * limit;
+
     const [products, totalRecords] = await Promise.all([
       Product.find(query)
-        .sort(req.query.sort || '-lastUpdated')
+        .sort(sort)
         .skip(skip)
-        .limit(limit),
-      Product.countDocuments(query)
+        .limit(limit)
+        .lean(),
+      Product.countDocuments(query),
     ]);
 
     const totalPages = Math.ceil(totalRecords / limit);
 
-    res.json({
+    return res.json({
       totalRecords,
       totalPages,
       currentPage: page,
       hasNextPage: page < totalPages,
-      data: products
+      hasPreviousPage: page > 1,
+      data: products,
     });
-
   } catch (error) {
-    console.error("Error in getInventory:", error);
-    res.status(500).json({ error: "Failed to fetch inventory data" });
+    console.error('Error in getInventory:', error);
+
+    return res.status(500).json({
+      message: 'Failed to fetch inventory data.',
+    });
   }
 };
 
-// add new product with validation
+// Add a product after validation middleware.
 const addProduct = async (req, res) => {
   try {
     const newProduct = new Product(req.body);
     await newProduct.save();
-    res.status(201).json({ message: "Product created successfully", product: newProduct });
+
+    return res.status(201).json({
+      message: 'Product created successfully.',
+      product: newProduct,
+    });
   } catch (error) {
-    // handle unique SKU error from MongoDB
     if (error.code === 11000) {
-      return res.status(400).json({ message: "SKU already exists" });
+      return res.status(400).json({
+        message: 'SKU already exists.',
+      });
     }
+
     console.error('Error adding product:', error);
-    res.status(500).json({ message: 'Server Error saving product', error: error.message });
+
+    return res.status(500).json({
+      message: 'Server error saving product.',
+    });
   }
 };
 
-// Exporting both functions so the router can use them
 module.exports = { getInventory, addProduct };

@@ -15,12 +15,12 @@ import {
 const PAGE_SIZE = 50;
 
 const colors = {
-  page: '#0f172a',
-  panel: '#1e293b',
-  panelDeep: '#111c30',
-  border: '#334155',
-  text: '#f8fafc',
-  muted: '#94a3b8',
+  page: 'var(--inventory-page)',
+  panel: 'var(--inventory-panel)',
+  panelDeep: 'var(--inventory-panel-deep)',
+  border: 'var(--inventory-border)',
+  text: 'var(--inventory-text)',
+  muted: 'var(--inventory-muted)',
   blue: '#3b82f6',
   green: '#10b981',
   amber: '#f59e0b',
@@ -89,7 +89,7 @@ const buttonBase = {
 const labelStyle = {
   display: 'block',
   marginBottom: '8px',
-  color: '#cbd5e1',
+  color: 'var(--inventory-label)',
   fontSize: '12px',
   fontWeight: 600,
 };
@@ -106,7 +106,7 @@ const headerCellStyle = {
   top: 0,
   zIndex: 2,
   background: colors.panelDeep,
-  color: '#aebbd0',
+  color: 'var(--inventory-header-text)',
   fontSize: '11px',
   fontWeight: 700,
   letterSpacing: '0.045em',
@@ -134,7 +134,7 @@ const SortHeader = ({ field, children, onSort, indicator }) => (
   </th>
 );
 
-const Inventory = () => {
+const Inventory = ({ isDarkMode = true }) => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -310,6 +310,18 @@ const Inventory = () => {
         width: '100%',
         minWidth: 0,
         color: colors.text,
+        background: colors.page,
+        '--inventory-page': isDarkMode ? '#0f172a' : '#f8fafc',
+        '--inventory-panel': isDarkMode ? '#1e293b' : '#ffffff',
+        '--inventory-panel-deep': isDarkMode ? '#111c30' : '#f1f5f9',
+        '--inventory-border': isDarkMode ? '#334155' : '#e2e8f0',
+        '--inventory-text': isDarkMode ? '#f8fafc' : '#0f172a',
+        '--inventory-muted': isDarkMode ? '#94a3b8' : '#64748b',
+        '--inventory-label': isDarkMode ? '#cbd5e1' : '#334155',
+        '--inventory-header-text': isDarkMode ? '#aebbd0' : '#475569',
+        '--inventory-footer': isDarkMode ? '#19263a' : '#f1f5f9',
+        '--inventory-eye-bg': isDarkMode ? '#172338' : '#f1f5f9',
+        '--inventory-eye-text': isDarkMode ? '#cbd5e1' : '#334155',
         fontFamily: 'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       }}
     >
@@ -573,7 +585,7 @@ const Inventory = () => {
                 ...buttonBase,
                 background: 'transparent',
                 border: `1px solid ${colors.border}`,
-                color: '#cbd5e1',
+                color: 'var(--inventory-label)',
               }}
             >
               <RefreshCw size={15} />
@@ -701,7 +713,7 @@ const Inventory = () => {
                 <tr>
                   <td colSpan={9} style={{ ...cellStyle, padding: 42, textAlign: 'center' }}>
                     <Package size={25} color="#64748b" style={{ marginBottom: 10 }} />
-                    <div style={{ color: '#e2e8f0', fontWeight: 600 }}>No matching products</div>
+                    <div style={{ color: colors.text, fontWeight: 600 }}>No matching products</div>
                     <div style={{ color: colors.muted, marginTop: 5, fontSize: 12 }}>
                       Try changing the search term or filters.
                     </div>
@@ -716,7 +728,7 @@ const Inventory = () => {
 
                   return (
                     <tr key={product._id || product.sku} className="inventory-row">
-                      <td style={{ ...cellStyle, color: '#aebbd0', fontSize: 12, maxWidth: 180, overflowWrap: 'anywhere' }}>
+                      <td style={{ ...cellStyle, color: 'var(--inventory-header-text)', fontSize: 12, maxWidth: 180, overflowWrap: 'anywhere' }}>
                         {product.sku || '—'}
                       </td>
                       <td style={{ ...cellStyle, minWidth: 180, color: colors.text, fontWeight: 600 }}>
@@ -783,8 +795,8 @@ const Inventory = () => {
                             height: 34,
                             borderRadius: 8,
                             border: `1px solid ${colors.border}`,
-                            background: '#172338',
-                            color: '#cbd5e1',
+                            background: 'var(--inventory-eye-bg)',
+                            color: 'var(--inventory-eye-text)',
                             cursor: 'pointer',
                           }}
                         >
@@ -808,7 +820,7 @@ const Inventory = () => {
             gap: 16,
             padding: '15px 18px',
             borderTop: `1px solid ${colors.border}`,
-            background: '#19263a',
+            background: 'var(--inventory-footer)',
           }}
         >
           <div style={{ color: colors.muted, fontSize: 12, lineHeight: 1.6 }}>

@@ -22,7 +22,7 @@ const validateProduct = (req, res, next) => {
     // block the request and send a 400 Bad Request
     return res.status(400).json({ 
       error: "Validation Failed", 
-      details: error.errors.map(err => err.message) 
+      details: error.issues.map(err => err.message)
     });
   }
 };

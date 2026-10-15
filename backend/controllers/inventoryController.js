@@ -1,4 +1,3 @@
-
 const Product = require('../models/Product');
 
 // Escape special characters before using search text in a regex.
@@ -71,7 +70,7 @@ const getInventory = async (req, res) => {
     }
 
     if (Object.keys(stockFilter).length > 0) {
-      query.stock = stockFilter;
+      query.stockQuantity = stockFilter;
     }
 
     // Filter by selling price range.
@@ -122,7 +121,7 @@ const getInventory = async (req, res) => {
       'category',
       'price',
       'cost',
-      'stock',
+      'stockQuantity',
       'reorderLevel',
       'lastUpdated',
     ]);

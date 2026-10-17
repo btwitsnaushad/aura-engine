@@ -171,13 +171,22 @@ const Inventory = ({ isDarkMode = true }) => {
       setError('');
 
       try {
-        const response = await getInventory(
-          page,
-          PAGE_SIZE,
-          debouncedSearch,
-          category,
-          sort
-        );
+        
+const response = await getInventory(
+  page,
+  PAGE_SIZE,
+  debouncedSearch,
+  category,
+  sort,
+  {
+    maxStock: stockThreshold < 100 ? stockThreshold : '',
+    minPrice,
+    maxPrice,
+  }
+);
+
+          
+          
 
         if (cancelled) return;
 
@@ -208,7 +217,16 @@ const Inventory = ({ isDarkMode = true }) => {
     return () => {
       cancelled = true;
     };
-  }, [page, debouncedSearch, category, sort, retryCount]);
+ }, [
+  page,
+  debouncedSearch,
+  category,
+  sort,
+  retryCount,
+  stockThreshold,
+  minPrice,
+  maxPrice,
+]);
 
   const invalidPriceRange =
     minPrice !== '' && maxPrice !== '' && Number(minPrice) > Number(maxPrice);

@@ -2,7 +2,7 @@ const Product = require('../models/Product');
 
 // Escape special characters before using search text in a regex.
 const escapeRegex = (value) =>
-  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+   value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const getInventory = async (req, res) => {
   try {

@@ -21,7 +21,7 @@ const getAnalytics = async (req, res) => {
 
       // 2. Risk Assessment: Top 10 items with the lowest stock (excluding 0)
       Product.find({ stockQuantity: { $gt: 0 } })
-        .sort({ stockQuantity: 1 })
+        .sort({ stockQuantity: 1, productName: 1 })
         .limit(10)
         .select('productName stockQuantity category'),
 

@@ -2,7 +2,7 @@ const Product = require('../models/Product');
 
 // Escape special characters before using search text in a regex.
 const escapeRegex = (value) =>
-   value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const getInventory = async (req, res) => {
   try {
@@ -25,14 +25,11 @@ const getInventory = async (req, res) => {
     }
 
     // Filter by category.
-    if (
-      typeof req.query.category === 'string' &&
-      req.query.category.trim()
-    ) {
+    if (typeof req.query.category === 'string' && req.query.category.trim()) {
       query.category = req.query.category.trim();
     }
 
-    // Filter by stock range.
+    // Filter by stock quantity.
     const stockFilter = {};
 
     if (req.query.minStock !== undefined) {
@@ -73,7 +70,7 @@ const getInventory = async (req, res) => {
       query.stockQuantity = stockFilter;
     }
 
-    // Filter by selling price range.
+    // Filter by selling price.
     const priceFilter = {};
 
     if (req.query.minPrice !== undefined) {
@@ -142,8 +139,8 @@ const getInventory = async (req, res) => {
       sort = { [field]: descending ? -1 : 1 };
     }
 
+    // Apply filters before pagination.
     const skip = (page - 1) * limit;
-
     const [products, totalRecords] = await Promise.all([
       Product.find(query)
         .sort(sort)

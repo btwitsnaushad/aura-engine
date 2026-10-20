@@ -247,10 +247,74 @@ const Inventory = ({ isDarkMode = true }) => {
     setPage(1);
   };
 
-  const exportToCSV = () => {
-    if (filteredProducts.length === 0) return;
 
-    const escapeCSV = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+const exportToCSV = async () => {
+  try {
+    const filters = {
+      minStock: stockThreshold < 100 ? 0 : "",
+      maxStock: stockThreshold < 100 ? stockThreshold - 1 : "",
+      minPrice,
+      maxPrice,
+    };
+
+    const firstResponse = await getInventory(
+      1,
+      PAGE_SIZE,
+      debouncedSearch,
+      category,
+      sort,
+      filters
+    );
+
+    const firstResult = firstResponse.data;
+    const allProducts = [...(firstResult.data || [])];
+    const totalPagesToFetch = firstResult.totalPages || 1;
+
+    const batchSize = 10;
+
+    for (
+      let startPage = 2;
+      startPage <= totalPagesToFetch;
+      startPage += batchSize
+    ) {
+      const endPage = Math.min(
+        startPage + batchSize - 1,
+        totalPagesToFetch
+      );
+
+      const requests = [];
+
+      for (
+        let pageNumber = startPage;
+        pageNumber <= endPage;
+        pageNumber++
+      ) {
+        requests.push(
+          getInventory(
+            pageNumber,
+            PAGE_SIZE,
+            debouncedSearch,
+            category,
+            sort,
+            filters
+          )
+        );
+      }
+
+      const responses = await Promise.all(requests);
+
+      responses.forEach((response) => {
+        allProducts.push(...(response.data.data || []));
+      });
+    }
+
+    if (allProducts.length === 0) {
+      alert("No products available to export.");
+      return;
+    }
+
+    const escapeCSV = (value) =>
+      `"${String(value ?? "").replace(/"/g, '""')}"`;
 
     const headers = [
       "SKU",
@@ -263,7 +327,7 @@ const Inventory = ({ isDarkMode = true }) => {
       "Last Updated",
     ];
 
-    const rows = filteredProducts.map((product) =>
+    const rows = allProducts.map((product) =>
       [
         product.sku,
         product.productName,
@@ -275,23 +339,35 @@ const Inventory = ({ isDarkMode = true }) => {
         product.lastUpdated,
       ]
         .map(escapeCSV)
-        .join(","),
+        .join(",")
     );
 
-    const blob = new Blob(
-      [[headers.map(escapeCSV).join(","), ...rows].join("\r\n")],
-      { type: "text/csv;charset=utf-8;" },
-    );
+    const csvContent = [
+      headers.map(escapeCSV).join(","),
+      ...rows,
+    ].join("\r\n");
+
+    const blob = new Blob(["\uFEFF", csvContent], {
+      type: "text/csv;charset=utf-8;",
+    });
+
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
 
     link.href = url;
     link.download = "Aura_Engine_Inventory.csv";
+
     document.body.appendChild(link);
     link.click();
     link.remove();
+
     window.URL.revokeObjectURL(url);
-  };
+  } catch (error) {
+    console.error("Error exporting inventory:", error);
+    alert("Unable to export inventory. Please try again.");
+  }
+};
+
 
   const changeSort = (field) => {
     setSort((current) => {

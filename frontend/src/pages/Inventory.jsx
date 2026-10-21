@@ -139,6 +139,7 @@ const Inventory = ({ isDarkMode = true }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [retryCount, setRetryCount] = useState(0);
+  const [isExporting, setIsExporting] = useState(false);
 
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -249,6 +250,10 @@ const Inventory = ({ isDarkMode = true }) => {
 
 
 const exportToCSV = async () => {
+  if (isExporting) return;
+
+  setIsExporting(true);
+
   try {
     const filters = {
       minStock: stockThreshold < 100 ? 0 : "",
@@ -269,6 +274,8 @@ const exportToCSV = async () => {
     const firstResult = firstResponse.data;
     const allProducts = [...(firstResult.data || [])];
     const totalPagesToFetch = firstResult.totalPages || 1;
+
+    console.log("Export pages:", totalPagesToFetch);
 
     const batchSize = 10;
 
@@ -362,11 +369,15 @@ const exportToCSV = async () => {
     link.remove();
 
     window.URL.revokeObjectURL(url);
+  
   } catch (error) {
     console.error("Error exporting inventory:", error);
     alert("Unable to export inventory. Please try again.");
+  } finally {
+    setIsExporting(false);
   }
 };
+
 
 
   const changeSort = (field) => {
@@ -715,7 +726,10 @@ const exportToCSV = async () => {
               className="inventory-button"
               onClick={exportToCSV}
               disabled={
-                loading || filteredProducts.length === 0 || invalidPriceRange
+              loading ||
+              isExporting ||
+              filteredProducts.length === 0 ||
+              invalidPriceRange
               }
               style={{
                 ...buttonBase,
@@ -725,7 +739,7 @@ const exportToCSV = async () => {
               }}
             >
               <Download size={15} />
-              Export CSV
+              {isExporting ? "Exporting..." : "Export CSV"}
             </button>
           </div>
         </div>

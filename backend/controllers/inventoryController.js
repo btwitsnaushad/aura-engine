@@ -1,9 +1,128 @@
-const Product = require('../models/Product');
 
-// Escape special characters before using search text in a regex.
+const Product = require("../models/Product");
+
+// Escape special characters so search text is treated literally.
 const escapeRegex = (value) =>
-  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+const allowedSortFields = new Set([
+  "productName",
+  "sku",
+  "category",
+  "price",
+  "cost",
+  "stockQuantity",
+  "reorderLevel",
+  "lastUpdated",
+]);
+
+// Build the same validated filters for both inventory and CSV export.
+const buildInventoryQuery = (queryParams) => {
+  const query = {};
+
+  if (
+    typeof queryParams.search === "string" &&
+    queryParams.search.trim()
+  ) {
+    const search = escapeRegex(queryParams.search.trim());
+
+    query.$or = [
+      { productName: { $regex: search, $options: "i" } },
+      { sku: { $regex: search, $options: "i" } },
+    ];
+  }
+
+  if (
+    typeof queryParams.category === "string" &&
+    queryParams.category.trim()
+  ) {
+    query.category = queryParams.category.trim();
+  }
+
+  const stockFilter = {};
+
+  for (const [param, operator] of [
+    ["minStock", "$gte"],
+    ["maxStock", "$lte"],
+  ]) {
+    if (
+      queryParams[param] !== undefined &&
+      queryParams[param] !== ""
+    ) {
+      const value = Number(queryParams[param]);
+
+      if (!Number.isFinite(value) || value < 0) {
+        throw new Error(`${param} must be a non-negative number.`);
+      }
+
+      stockFilter[operator] = value;
+    }
+  }
+
+  if (
+    stockFilter.$gte !== undefined &&
+    stockFilter.$lte !== undefined &&
+    stockFilter.$gte > stockFilter.$lte
+  ) {
+    throw new Error("minStock cannot exceed maxStock.");
+  }
+
+  if (Object.keys(stockFilter).length > 0) {
+    query.stockQuantity = stockFilter;
+  }
+
+  const priceFilter = {};
+
+  for (const [param, operator] of [
+    ["minPrice", "$gte"],
+    ["maxPrice", "$lte"],
+  ]) {
+    if (
+      queryParams[param] !== undefined &&
+      queryParams[param] !== ""
+    ) {
+      const value = Number(queryParams[param]);
+
+      if (!Number.isFinite(value) || value < 0) {
+        throw new Error(`${param} must be a non-negative number.`);
+      }
+
+      priceFilter[operator] = value;
+    }
+  }
+
+  if (
+    priceFilter.$gte !== undefined &&
+    priceFilter.$lte !== undefined &&
+    priceFilter.$gte > priceFilter.$lte
+  ) {
+    throw new Error("minPrice cannot exceed maxPrice.");
+  }
+
+  if (Object.keys(priceFilter).length > 0) {
+    query.price = priceFilter;
+  }
+
+  return query;
+};
+
+const buildSort = (sortValue) => {
+  const value =
+    typeof sortValue === "string" && sortValue.trim()
+      ? sortValue.trim()
+      : "-lastUpdated";
+
+  const descending = value.startsWith("-");
+  const field = descending ? value.slice(1) : value;
+
+  if (!allowedSortFields.has(field)) {
+    throw new Error("Unsupported sort field.");
+  }
+
+  return { [field]: descending ? -1 : 1 };
+};
+
+// GET /api/inventory
 const getInventory = async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -12,135 +131,10 @@ const getInventory = async (req, res) => {
       Math.max(1, parseInt(req.query.limit, 10) || 50)
     );
 
-    const query = {};
-
-    // Search by product name or SKU.
-    if (typeof req.query.search === 'string' && req.query.search.trim()) {
-      const search = escapeRegex(req.query.search.trim());
-
-      query.$or = [
-        { productName: { $regex: search, $options: 'i' } },
-        { sku: { $regex: search, $options: 'i' } },
-      ];
-    }
-
-    // Filter by category.
-    if (typeof req.query.category === 'string' && req.query.category.trim()) {
-      query.category = req.query.category.trim();
-    }
-
-    // Filter by stock quantity.
-    const stockFilter = {};
-
-    if (req.query.minStock !== undefined) {
-      const minStock = Number(req.query.minStock);
-
-      if (!Number.isFinite(minStock) || minStock < 0) {
-        return res.status(400).json({
-          message: 'minStock must be a non-negative number.',
-        });
-      }
-
-      stockFilter.$gte = minStock;
-    }
-
-    if (req.query.maxStock !== undefined) {
-      const maxStock = Number(req.query.maxStock);
-
-      if (!Number.isFinite(maxStock) || maxStock < 0) {
-        return res.status(400).json({
-          message: 'maxStock must be a non-negative number.',
-        });
-      }
-
-      stockFilter.$lte = maxStock;
-    }
-
-    if (
-      stockFilter.$gte !== undefined &&
-      stockFilter.$lte !== undefined &&
-      stockFilter.$gte > stockFilter.$lte
-    ) {
-      return res.status(400).json({
-        message: 'minStock cannot exceed maxStock.',
-      });
-    }
-
-    if (Object.keys(stockFilter).length > 0) {
-      query.stockQuantity = stockFilter;
-    }
-
-    // Filter by selling price.
-    const priceFilter = {};
-
-    if (req.query.minPrice !== undefined) {
-      const minPrice = Number(req.query.minPrice);
-
-      if (!Number.isFinite(minPrice) || minPrice < 0) {
-        return res.status(400).json({
-          message: 'minPrice must be a non-negative number.',
-        });
-      }
-
-      priceFilter.$gte = minPrice;
-    }
-
-    if (req.query.maxPrice !== undefined) {
-      const maxPrice = Number(req.query.maxPrice);
-
-      if (!Number.isFinite(maxPrice) || maxPrice < 0) {
-        return res.status(400).json({
-          message: 'maxPrice must be a non-negative number.',
-        });
-      }
-
-      priceFilter.$lte = maxPrice;
-    }
-
-    if (
-      priceFilter.$gte !== undefined &&
-      priceFilter.$lte !== undefined &&
-      priceFilter.$gte > priceFilter.$lte
-    ) {
-      return res.status(400).json({
-        message: 'minPrice cannot exceed maxPrice.',
-      });
-    }
-
-    if (Object.keys(priceFilter).length > 0) {
-      query.price = priceFilter;
-    }
-
-    // Allow only supported sort fields.
-    const allowedSortFields = new Set([
-      'productName',
-      'sku',
-      'category',
-      'price',
-      'cost',
-      'stockQuantity',
-      'reorderLevel',
-      'lastUpdated',
-    ]);
-
-    let sort = { lastUpdated: -1 };
-
-    if (typeof req.query.sort === 'string' && req.query.sort.trim()) {
-      const sortValue = req.query.sort.trim();
-      const descending = sortValue.startsWith('-');
-      const field = descending ? sortValue.slice(1) : sortValue;
-
-      if (!allowedSortFields.has(field)) {
-        return res.status(400).json({
-          message: 'Unsupported sort field.',
-        });
-      }
-
-      sort = { [field]: descending ? -1 : 1 };
-    }
-
-    // Apply filters before pagination.
+    const query = buildInventoryQuery(req.query);
+    const sort = buildSort(req.query.sort);
     const skip = (page - 1) * limit;
+
     const [products, totalRecords] = await Promise.all([
       Product.find(query)
         .sort(sort)
@@ -161,37 +155,140 @@ const getInventory = async (req, res) => {
       data: products,
     });
   } catch (error) {
-    console.error('Error in getInventory:', error);
+    if (
+      error.message.includes("must be a non-negative number") ||
+      error.message.includes("cannot exceed") ||
+      error.message === "Unsupported sort field."
+    ) {
+      return res.status(400).json({ message: error.message });
+    }
+
+    console.error("Error in getInventory:", error);
 
     return res.status(500).json({
-      message: 'Failed to fetch inventory data.',
+      message: "Failed to fetch inventory data.",
     });
   }
 };
 
-// Add a product after validation middleware.
+// GET /api/inventory/export
+// Stream CSV rows instead of loading all products into browser memory.
+const exportInventoryCSV = async (req, res) => {
+  let cursor;
+
+  try {
+    const query = buildInventoryQuery(req.query);
+    const sort = buildSort(req.query.sort);
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      'attachment; filename="Aura_Engine_Inventory.csv"'
+    );
+    res.setHeader("Cache-Control", "no-store");
+
+    // UTF-8 BOM helps Excel display text correctly.
+    res.write("\uFEFF");
+
+    const escapeCSVValue = (value) =>
+      `"${String(value ?? "").replace(/"/g, '""')}"`;
+
+    const headers = [
+      "SKU",
+      "Product Name",
+      "Category",
+      "Price",
+      "Cost",
+      "Stock Quantity",
+      "Reorder Level",
+      "Last Updated",
+    ];
+
+    res.write(headers.map(escapeCSVValue).join(",") + "\r\n");
+
+    cursor = Product.find(query)
+      .select(
+        "sku productName category price cost stockQuantity reorderLevel lastUpdated -_id"
+      )
+      .sort(sort)
+      .lean()
+      .cursor({ batchSize: 1000 });
+
+    for await (const product of cursor) {
+      const row = [
+        product.sku,
+        product.productName,
+        product.category,
+        product.price,
+        product.cost,
+        product.stockQuantity,
+        product.reorderLevel,
+        product.lastUpdated,
+      ]
+        .map(escapeCSVValue)
+        .join(",");
+
+      if (!res.write(row + "\r\n")) {
+        await new Promise((resolve, reject) => {
+          res.once("drain", resolve);
+          res.once("error", reject);
+        });
+      }
+    }
+
+    return res.end();
+  } catch (error) {
+    if (cursor) {
+      await cursor.close().catch(() => {});
+    }
+
+    console.error("Error exporting inventory:", error);
+
+    if (!res.headersSent) {
+      if (
+        error.message.includes("must be a non-negative number") ||
+        error.message.includes("cannot exceed") ||
+        error.message === "Unsupported sort field."
+      ) {
+        return res.status(400).json({ message: error.message });
+      }
+
+      return res.status(500).json({
+        message: "Failed to export inventory.",
+      });
+    }
+
+    return res.destroy(error);
+  }
+};
+
+// POST /api/inventory
 const addProduct = async (req, res) => {
   try {
     const newProduct = new Product(req.body);
     await newProduct.save();
 
     return res.status(201).json({
-      message: 'Product created successfully.',
+      message: "Product created successfully.",
       product: newProduct,
     });
   } catch (error) {
     if (error.code === 11000) {
       return res.status(400).json({
-        message: 'SKU already exists.',
+        message: "SKU already exists.",
       });
     }
 
-    console.error('Error adding product:', error);
+    console.error("Error adding product:", error);
 
     return res.status(500).json({
-      message: 'Server error saving product.',
+      message: "Server error saving product.",
     });
   }
 };
 
-module.exports = { getInventory, addProduct };
+module.exports = {
+  getInventory,
+  addProduct,
+  exportInventoryCSV,
+};

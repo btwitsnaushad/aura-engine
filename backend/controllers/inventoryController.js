@@ -16,7 +16,7 @@ const allowedSortFields = new Set([
   "lastUpdated",
 ]);
 
-// Build the same validated filters for both inventory and CSV export.
+// Build the same validated filters for inventory and CSV export.
 const buildInventoryQuery = (queryParams) => {
   const query = {};
 
@@ -52,7 +52,9 @@ const buildInventoryQuery = (queryParams) => {
       const value = Number(queryParams[param]);
 
       if (!Number.isFinite(value) || value < 0) {
-        throw new Error(`${param} must be a non-negative number.`);
+        throw new Error(
+          `${param} must be a non-negative number.`
+        );
       }
 
       stockFilter[operator] = value;
@@ -84,7 +86,9 @@ const buildInventoryQuery = (queryParams) => {
       const value = Number(queryParams[param]);
 
       if (!Number.isFinite(value) || value < 0) {
-        throw new Error(`${param} must be a non-negative number.`);
+        throw new Error(
+          `${param} must be a non-negative number.`
+        );
       }
 
       priceFilter[operator] = value;
@@ -106,6 +110,7 @@ const buildInventoryQuery = (queryParams) => {
   return query;
 };
 
+// Validate sorting against the allowed fields.
 const buildSort = (sortValue) => {
   const value =
     typeof sortValue === "string" && sortValue.trim()
@@ -122,10 +127,33 @@ const buildSort = (sortValue) => {
   return { [field]: descending ? -1 : 1 };
 };
 
+// Shared handling for invalid inventory query parameters.
+const handleQueryError = (error, res, operation) => {
+  const message = error.message || "";
+
+  if (
+    message.includes("must be a non-negative number") ||
+    message.includes("cannot exceed") ||
+    message === "Unsupported sort field."
+  ) {
+    return res.status(400).json({ message });
+  }
+
+  console.error(`${operation}:`, error);
+
+  return res.status(500).json({
+    message: "An unexpected server error occurred.",
+  });
+};
+
 // GET /api/inventory
 const getInventory = async (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const page = Math.max(
+      1,
+      parseInt(req.query.page, 10) || 1
+    );
+
     const limit = Math.min(
       100,
       Math.max(1, parseInt(req.query.limit, 10) || 50)
@@ -155,24 +183,16 @@ const getInventory = async (req, res) => {
       data: products,
     });
   } catch (error) {
-    if (
-      error.message.includes("must be a non-negative number") ||
-      error.message.includes("cannot exceed") ||
-      error.message === "Unsupported sort field."
-    ) {
-      return res.status(400).json({ message: error.message });
-    }
-
-    console.error("Error in getInventory:", error);
-
-    return res.status(500).json({
-      message: "Failed to fetch inventory data.",
-    });
+    return handleQueryError(
+      error,
+      res,
+      "Error fetching inventory"
+    );
   }
 };
 
 // GET /api/inventory/export
-// Stream CSV rows instead of loading all products into browser memory.
+// Stream matching products instead of loading everything into memory.
 const exportInventoryCSV = async (req, res) => {
   let cursor;
 
@@ -187,7 +207,7 @@ const exportInventoryCSV = async (req, res) => {
     );
     res.setHeader("Cache-Control", "no-store");
 
-    // UTF-8 BOM helps Excel display text correctly.
+    // UTF-8 BOM helps spreadsheet applications display text correctly.
     res.write("\uFEFF");
 
     const escapeCSVValue = (value) =>
@@ -230,8 +250,30 @@ const exportInventoryCSV = async (req, res) => {
 
       if (!res.write(row + "\r\n")) {
         await new Promise((resolve, reject) => {
-          res.once("drain", resolve);
-          res.once("error", reject);
+          const cleanup = () => {
+            res.off("drain", onDrain);
+            res.off("error", onError);
+            res.off("close", onClose);
+          };
+
+          const onDrain = () => {
+            cleanup();
+            resolve();
+          };
+
+          const onError = (error) => {
+            cleanup();
+            reject(error);
+          };
+
+          const onClose = () => {
+            cleanup();
+            reject(new Error("CSV response was closed."));
+          };
+
+          res.once("drain", onDrain);
+          res.once("error", onError);
+          res.once("close", onClose);
         });
       }
     }
@@ -242,20 +284,18 @@ const exportInventoryCSV = async (req, res) => {
       await cursor.close().catch(() => {});
     }
 
+    if (res.destroyed) {
+      return;
+    }
+
     console.error("Error exporting inventory:", error);
 
     if (!res.headersSent) {
-      if (
-        error.message.includes("must be a non-negative number") ||
-        error.message.includes("cannot exceed") ||
-        error.message === "Unsupported sort field."
-      ) {
-        return res.status(400).json({ message: error.message });
-      }
-
-      return res.status(500).json({
-        message: "Failed to export inventory.",
-      });
+      return handleQueryError(
+        error,
+        res,
+        "Error exporting inventory"
+      );
     }
 
     return res.destroy(error);
@@ -279,6 +319,15 @@ const addProduct = async (req, res) => {
       });
     }
 
+    if (error.name === "ValidationError") {
+      return res.status(400).json({
+        message: "Product validation failed.",
+        details: Object.values(error.errors).map(
+          (item) => item.message
+        ),
+      });
+    }
+
     console.error("Error adding product:", error);
 
     return res.status(500).json({
@@ -287,8 +336,67 @@ const addProduct = async (req, res) => {
   }
 };
 
+// PUT /api/inventory/:id
+// The route must use validateProductUpdate before this controller.
+const updateProduct = async (req, res) => {
+  try {
+    const updates = {
+      ...req.body,
+      lastUpdated: new Date(),
+    };
+
+    const updatedProduct = await Product.findByIdAndUpdate(
+      req.params.id,
+      { $set: updates },
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
+
+    if (!updatedProduct) {
+      return res.status(404).json({
+        message: "Product not found.",
+      });
+    }
+
+    return res.status(200).json({
+      message: "Product updated successfully.",
+      product: updatedProduct,
+    });
+  } catch (error) {
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        message: "Invalid product ID.",
+      });
+    }
+
+    if (error.code === 11000) {
+      return res.status(400).json({
+        message: "SKU already exists.",
+      });
+    }
+
+    if (error.name === "ValidationError") {
+      return res.status(400).json({
+        message: "Product validation failed.",
+        details: Object.values(error.errors).map(
+          (item) => item.message
+        ),
+      });
+    }
+
+    console.error("Error updating product:", error);
+
+    return res.status(500).json({
+      message: "Server error updating product.",
+    });
+  }
+};
+
 module.exports = {
   getInventory,
   addProduct,
+  updateProduct,
   exportInventoryCSV,
 };

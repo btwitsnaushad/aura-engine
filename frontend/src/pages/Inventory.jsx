@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { getInventory } from "../services/api";
+import { getInventory, exportInventoryCSV } from "../services/api";
 import {
   Search,
   Eye,
@@ -149,7 +149,7 @@ const Inventory = ({ isDarkMode = true }) => {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [category, setCategory] = useState("");
   const [sort, setSort] = useState("-lastUpdated");
-  const [stockThreshold, setStockThreshold] = useState(20);
+  const [stockThreshold, setStockThreshold] = useState(100);
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
 
@@ -242,7 +242,7 @@ const Inventory = ({ isDarkMode = true }) => {
     setDebouncedSearch("");
     setCategory("");
     setSort("-lastUpdated");
-    setStockThreshold(20);
+    setStockThreshold(100);
     setMinPrice("");
     setMaxPrice("");
     setPage(1);
@@ -250,7 +250,7 @@ const Inventory = ({ isDarkMode = true }) => {
 
 
 const exportToCSV = async () => {
-  if (isExporting) return;
+  if (isExporting || invalidPriceRange) return;
 
   setIsExporting(true);
 
@@ -262,99 +262,14 @@ const exportToCSV = async () => {
       maxPrice,
     };
 
-    const firstResponse = await getInventory(
-      1,
-      PAGE_SIZE,
+    const response = await exportInventoryCSV(
       debouncedSearch,
       category,
       sort,
       filters
     );
 
-    const firstResult = firstResponse.data;
-    const allProducts = [...(firstResult.data || [])];
-    const totalPagesToFetch = firstResult.totalPages || 1;
-
-    console.log("Export pages:", totalPagesToFetch);
-
-    const batchSize = 10;
-
-    for (
-      let startPage = 2;
-      startPage <= totalPagesToFetch;
-      startPage += batchSize
-    ) {
-      const endPage = Math.min(
-        startPage + batchSize - 1,
-        totalPagesToFetch
-      );
-
-      const requests = [];
-
-      for (
-        let pageNumber = startPage;
-        pageNumber <= endPage;
-        pageNumber++
-      ) {
-        requests.push(
-          getInventory(
-            pageNumber,
-            PAGE_SIZE,
-            debouncedSearch,
-            category,
-            sort,
-            filters
-          )
-        );
-      }
-
-      const responses = await Promise.all(requests);
-
-      responses.forEach((response) => {
-        allProducts.push(...(response.data.data || []));
-      });
-    }
-
-    if (allProducts.length === 0) {
-      alert("No products available to export.");
-      return;
-    }
-
-    const escapeCSV = (value) =>
-      `"${String(value ?? "").replace(/"/g, '""')}"`;
-
-    const headers = [
-      "SKU",
-      "Product Name",
-      "Category",
-      "Price",
-      "Cost",
-      "Stock Quantity",
-      "Reorder Level",
-      "Last Updated",
-    ];
-
-    const rows = allProducts.map((product) =>
-      [
-        product.sku,
-        product.productName,
-        product.category,
-        product.price,
-        product.cost,
-        product.stockQuantity,
-        product.reorderLevel,
-        product.lastUpdated,
-      ]
-        .map(escapeCSV)
-        .join(",")
-    );
-
-    const csvContent = [
-      headers.map(escapeCSV).join(","),
-      ...rows,
-    ].join("\r\n");
-
-    const blob = new Blob(["\uFEFF", csvContent], {
+    const blob = new Blob([response.data], {
       type: "text/csv;charset=utf-8;",
     });
 
@@ -368,8 +283,9 @@ const exportToCSV = async () => {
     link.click();
     link.remove();
 
-    window.URL.revokeObjectURL(url);
-  
+    window.setTimeout(() => {
+      window.URL.revokeObjectURL(url);
+    }, 1000);
   } catch (error) {
     console.error("Error exporting inventory:", error);
     alert("Unable to export inventory. Please try again.");
@@ -377,7 +293,6 @@ const exportToCSV = async () => {
     setIsExporting(false);
   }
 };
-
 
 
   const changeSort = (field) => {

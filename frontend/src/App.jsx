@@ -142,10 +142,10 @@ const App = () => {
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    Naushad Ahamad
+                    Jonathan Hayes
                   </div>
                   <div style={{ fontSize: 12, color: theme.muted }}>
-                    Admin
+                    VP of Operations
                   </div>
                 </div>
 

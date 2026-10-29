@@ -1,10 +1,11 @@
-
 const Product = require("../models/Product");
 
 // Escape special characters so search text is treated literally.
-const escapeRegex = (value) =>
-  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegex = (value) => {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+};
 
+// Only these fields can be used for sorting.
 const allowedSortFields = new Set([
   "productName",
   "sku",
@@ -16,10 +17,22 @@ const allowedSortFields = new Set([
   "lastUpdated",
 ]);
 
-// Build the same validated filters for inventory and CSV export.
+// Fields that can be updated through the API.
+const allowedUpdateFields = new Set([
+  "productName",
+  "sku",
+  "category",
+  "price",
+  "cost",
+  "stockQuantity",
+  "reorderLevel",
+]);
+
+// Build validated filters for inventory and CSV export.
 const buildInventoryQuery = (queryParams) => {
   const query = {};
 
+  // Search products by name or SKU.
   if (
     typeof queryParams.search === "string" &&
     queryParams.search.trim()
@@ -32,6 +45,7 @@ const buildInventoryQuery = (queryParams) => {
     ];
   }
 
+  // Filter by category.
   if (
     typeof queryParams.category === "string" &&
     queryParams.category.trim()
@@ -39,6 +53,7 @@ const buildInventoryQuery = (queryParams) => {
     query.category = queryParams.category.trim();
   }
 
+  // Validate minimum and maximum stock.
   const stockFilter = {};
 
   for (const [param, operator] of [
@@ -73,6 +88,7 @@ const buildInventoryQuery = (queryParams) => {
     query.stockQuantity = stockFilter;
   }
 
+  // Validate minimum and maximum price.
   const priceFilter = {};
 
   for (const [param, operator] of [
@@ -110,12 +126,12 @@ const buildInventoryQuery = (queryParams) => {
   return query;
 };
 
-// Validate sorting against the allowed fields.
-const buildSort = (sortValue) => {
+// Build a safe MongoDB sort object.
+const buildSort = (sortValue, orderValue) => {
   const value =
     typeof sortValue === "string" && sortValue.trim()
       ? sortValue.trim()
-      : "-lastUpdated";
+      : "lastUpdated";
 
   const descending = value.startsWith("-");
   const field = descending ? value.slice(1) : value;
@@ -124,24 +140,43 @@ const buildSort = (sortValue) => {
     throw new Error("Unsupported sort field.");
   }
 
-  return { [field]: descending ? -1 : 1 };
+  let direction = descending ? -1 : 1;
+
+  if (orderValue !== undefined && orderValue !== "") {
+    if (
+      typeof orderValue !== "string" ||
+      !["asc", "desc"].includes(orderValue.toLowerCase())
+    ) {
+      throw new Error("Order must be either asc or desc.");
+    }
+
+    direction = orderValue.toLowerCase() === "desc" ? -1 : 1;
+  }
+
+  return { [field]: direction };
 };
 
-// Shared handling for invalid inventory query parameters.
+// Handle invalid query parameters consistently.
 const handleQueryError = (error, res, operation) => {
   const message = error.message || "";
 
-  if (
+  const isClientError =
     message.includes("must be a non-negative number") ||
     message.includes("cannot exceed") ||
-    message === "Unsupported sort field."
-  ) {
-    return res.status(400).json({ message });
+    message === "Unsupported sort field." ||
+    message === "Order must be either asc or desc.";
+
+  if (isClientError) {
+    return res.status(400).json({
+      success: false,
+      message,
+    });
   }
 
   console.error(`${operation}:`, error);
 
   return res.status(500).json({
+    success: false,
     message: "An unexpected server error occurred.",
   });
 };
@@ -149,18 +184,29 @@ const handleQueryError = (error, res, operation) => {
 // GET /api/inventory
 const getInventory = async (req, res) => {
   try {
-    const page = Math.max(
-      1,
-      parseInt(req.query.page, 10) || 1
-    );
+    const pageInput = req.query.page;
+    const limitInput = req.query.limit;
 
-    const limit = Math.min(
-      100,
-      Math.max(1, parseInt(req.query.limit, 10) || 50)
-    );
+    const page = pageInput === undefined ? 1 : Number(pageInput);
+    const limit = limitInput === undefined ? 50 : Number(limitInput);
+
+    if (
+      !Number.isSafeInteger(page) ||
+      page < 1 ||
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 100
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Page must be a positive integer and limit must be between 1 and 100.",
+      });
+    }
 
     const query = buildInventoryQuery(req.query);
-    const sort = buildSort(req.query.sort);
+    const sort = buildSort(req.query.sort, req.query.order);
+
     const skip = (page - 1) * limit;
 
     const [products, totalRecords] = await Promise.all([
@@ -169,12 +215,13 @@ const getInventory = async (req, res) => {
         .skip(skip)
         .limit(limit)
         .lean(),
+
       Product.countDocuments(query),
     ]);
 
     const totalPages = Math.ceil(totalRecords / limit);
 
-    return res.json({
+    return res.status(200).json({
       totalRecords,
       totalPages,
       currentPage: page,
@@ -192,13 +239,12 @@ const getInventory = async (req, res) => {
 };
 
 // GET /api/inventory/export
-// Stream matching products instead of loading everything into memory.
 const exportInventoryCSV = async (req, res) => {
   let cursor;
 
   try {
     const query = buildInventoryQuery(req.query);
-    const sort = buildSort(req.query.sort);
+    const sort = buildSort(req.query.sort, req.query.order);
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader(
@@ -207,11 +253,19 @@ const exportInventoryCSV = async (req, res) => {
     );
     res.setHeader("Cache-Control", "no-store");
 
-    // UTF-8 BOM helps spreadsheet applications display text correctly.
+    // UTF-8 BOM improves compatibility with spreadsheet software.
     res.write("\uFEFF");
 
-    const escapeCSVValue = (value) =>
-      `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const escapeCSVValue = (value) => {
+      let text = String(value ?? "");
+
+      // Reduce spreadsheet formula-injection risk.
+      if (/^[\t\r\n ]*[=+\-@]/.test(text)) {
+        text = `'${text}`;
+      }
+
+      return `"${text.replace(/"/g, '""')}"`;
+    };
 
     const headers = [
       "SKU",
@@ -235,6 +289,10 @@ const exportInventoryCSV = async (req, res) => {
       .cursor({ batchSize: 1000 });
 
     for await (const product of cursor) {
+      if (res.destroyed) {
+        return;
+      }
+
       const row = [
         product.sku,
         product.productName,
@@ -243,7 +301,9 @@ const exportInventoryCSV = async (req, res) => {
         product.cost,
         product.stockQuantity,
         product.reorderLevel,
-        product.lastUpdated,
+        product.lastUpdated
+          ? new Date(product.lastUpdated).toISOString()
+          : "",
       ]
         .map(escapeCSVValue)
         .join(",");
@@ -337,13 +397,23 @@ const addProduct = async (req, res) => {
 };
 
 // PUT /api/inventory/:id
-// The route must use validateProductUpdate before this controller.
 const updateProduct = async (req, res) => {
   try {
-    const updates = {
-      ...req.body,
-      lastUpdated: new Date(),
-    };
+    const updates = {};
+
+    for (const field of allowedUpdateFields) {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+        updates[field] = req.body[field];
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({
+        message: "No valid product fields provided for update.",
+      });
+    }
+
+    updates.lastUpdated = new Date();
 
     const updatedProduct = await Product.findByIdAndUpdate(
       req.params.id,
@@ -394,9 +464,42 @@ const updateProduct = async (req, res) => {
   }
 };
 
+// DELETE /api/inventory/:id
+const deleteProduct = async (req, res) => {
+  try {
+    const deletedProduct = await Product.findByIdAndDelete(
+      req.params.id
+    );
+
+    if (!deletedProduct) {
+      return res.status(404).json({
+        message: "Product not found.",
+      });
+    }
+
+    return res.status(200).json({
+      message: "Product deleted successfully.",
+      product: deletedProduct,
+    });
+  } catch (error) {
+    if (error.name === "CastError") {
+      return res.status(400).json({
+        message: "Invalid product ID.",
+      });
+    }
+
+    console.error("Error deleting product:", error);
+
+    return res.status(500).json({
+      message: "Server error deleting product.",
+    });
+  }
+};
+
 module.exports = {
   getInventory,
   addProduct,
   updateProduct,
+  deleteProduct,
   exportInventoryCSV,
 };

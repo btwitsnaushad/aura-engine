@@ -1,4 +1,3 @@
-
 const express = require("express");
 const router = express.Router();
 
@@ -6,6 +5,7 @@ const {
   getInventory,
   addProduct,
   updateProduct,
+  deleteProduct,
   exportInventoryCSV,
 } = require("../controllers/inventoryController");
 
@@ -14,17 +14,19 @@ const {
   validateProductUpdate,
 } = require("../middleware/validator");
 
-// Download the currently filtered inventory as CSV.
+// Export inventory as CSV
 router.get("/export", exportInventoryCSV);
 
-// Get inventory with pagination, search, filters, and sorting.
+// Get inventory
 router.get("/", getInventory);
 
-// Create a product after strict validation.
+// Create product
 router.post("/", validateProduct, addProduct);
 
-// Update a product after validating the supplied fields
-// and checking the price-versus-cost business rule.
+// Update product
 router.put("/:id", validateProductUpdate, updateProduct);
+
+// Delete product
+router.delete("/:id", deleteProduct);
 
 module.exports = router;

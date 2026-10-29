@@ -1,47 +1,63 @@
+const mongoose = require("mongoose");
 
-const mongoose = require('mongoose');
+const productSchema = new mongoose.Schema(
+  {
+    productName: {
+      type: String,
+      required: [true, "Product name is required"],
+      trim: true,
+      index: true,
+    },
 
-const productSchema = new mongoose.Schema({
-  productName: {
-    type: String,
-    required: true
+    sku: {
+      type: String,
+      required: [true, "SKU is required"],
+      unique: true,
+      trim: true,
+    },
+
+    category: {
+      type: String,
+      required: [true, "Category is required"],
+      trim: true,
+      index: true,
+    },
+
+    price: {
+      type: Number,
+      required: [true, "Price is required"],
+      min: [0, "Price cannot be negative"],
+    },
+
+    cost: {
+      type: Number,
+      required: [true, "Cost is required"],
+      min: [0, "Cost cannot be negative"],
+    },
+
+    stockQuantity: {
+      type: Number,
+      required: [true, "Stock quantity is required"],
+      min: [0, "Stock quantity cannot be negative"],
+    },
+
+    reorderLevel: {
+      type: Number,
+      required: [true, "Reorder level is required"],
+      min: [0, "Reorder level cannot be negative"],
+    },
+
+    lastUpdated: {
+      type: Date,
+      default: Date.now,
+    },
   },
-  sku: {
-    type: String,
-    required: true,
-    unique: true
-  },
-  category: {
-    type: String,
-    required: true
-  },
-  price: {
-    type: Number,
-    required: true
-  },
-  cost: {
-    type: Number,
-    required: true
-  },
-  stockQuantity: {
-    type: Number,
-    required: true
-  },
-  reorderLevel: {
-    type: Number,
-    required: true
-  },
-  lastUpdated: {
-    type: Date,
-    default: Date.now
+  {
+    timestamps: false,
   }
-});
+);
 
-// Indexes for frequently queried fields
-productSchema.index({ category: 1 });
-productSchema.index({ productName: 1 });
-
-// Supports sorting low-stock products by quantity and name
+// Compound index for low-stock product queries.
 productSchema.index({ stockQuantity: 1, productName: 1 });
 
-module.exports = mongoose.model('Product', productSchema);
+module.exports = mongoose.model("Product", productSchema);
